@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LevelUp — Setup</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="page" style="max-width:520px;">
+    <h1 style="margin-bottom:4px;">Build Your Character</h1>
+    <p class="eyebrow" style="margin-bottom:20px;">This sets your starting stats. You can change any goal later in Settings.</p>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <h3 style="margin-bottom:14px;">About You</h3>
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="height">Height (in)</label>
+          <input id="height" type="number" placeholder="70" />
+        </div>
+        <div class="field">
+          <label for="weight">Current weight (lb)</label>
+          <input id="weight" type="number" placeholder="180" />
+        </div>
+        <div class="field">
+          <label for="age">Age</label>
+          <input id="age" type="number" placeholder="24" />
+        </div>
+        <div class="field">
+          <label for="sex">Sex</label>
+          <select id="sex">
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="freq">Workouts per week</label>
+        <select id="freq">
+          <option value="3">3</option>
+          <option value="4" selected>4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Medications / vitamins to track (comma separated, optional)</label>
+        <input id="meds" placeholder="Vitamin D, Creatine, Fish Oil" />
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <h3 style="margin-bottom:14px;">Weight Goal</h3>
+      <div class="field">
+        <label for="direction">Direction</label>
+        <select id="direction">
+          <option value="maintain">Maintain</option>
+          <option value="gain">Gain weight</option>
+          <option value="lose">Lose weight</option>
+        </select>
+      </div>
+      <div class="field" id="rateField" style="display:none;">
+        <label for="rate">Pace</label>
+        <select id="rate">
+          <option value="slow">Slow — 0.5 lb / month</option>
+          <option value="moderate">Moderate — 1 lb / month</option>
+          <option value="fast">Fast — 1.5–2 lb / month</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="stat-row"><h3>Recommended calorie goal</h3><span class="stat-value mono" id="calOut">—</span></div>
+      <div class="field">
+        <label for="calCustom">Adjust if you want something different (kcal/day)</label>
+        <input id="calCustom" type="number" />
+      </div>
+      <div class="stat-row"><h3>Recommended water goal</h3><span class="stat-value mono" id="waterOut">—</span></div>
+      <div class="field">
+        <label for="waterCustom">Adjust if you want something different (ml/day)</label>
+        <input id="waterCustom" type="number" />
+      </div>
+    </div>
+
+    <button class="primary block" id="saveBtn">Start My Quest</button>
+    <p id="msg" class="eyebrow" style="margin-top:10px;"></p>
+  </div>
+
+<script src="js/supabase-client.js"></script>
+<script src="js/calc.js"></script>
+<script>
+  let session;
+  (async () => {
+    const { data } = await sb.auth.getSession();
+    session = data.session;
+    if (!session) { window.location.href = 'index.html'; return; }
+  })();
+
+  const directionEl = document.getElementById('direction');
+  const rateField = document.getElementById('rateField');
+  directionEl.addEventListener('change', () => {
+    rateField.style.display = directionEl.value === 'maintain' ? 'none' : 'block';
+    recompute();
+  });
+  ['height','weight','age','sex','freq','rate'].forEach(id => {
+    document.getElementById(id).addEventListener('input', recompute);
+    document.getElementById(id).addEventListener('change', recompute);
+  });
+
+  function recompute() {
+    const heightIn = parseFloat(document.getElementById('height').value);
+    const weightLb = parseFloat(document.getElementById('weight').value);
+    const age = parseFloat(document.getElementById('age').value);
+    const sex = document.getElementById('sex').value;
+    const freq = parseInt(document.getElementById('freq').value, 10);
+    const direction = directionEl.value;
+    const rate = document.getElementById('rate').value;
+    if (!heightIn || !weightLb || !age) return;
+
+    const heightCm = heightIn * 2.54;
+    const weightKg = weightLb * LevelUpCalc.KG_PER_LB;
+
+    const cal = LevelUpCalc.recommendedCalories({ weightKg, heightCm, age, sex, workoutsPerWeek: freq, goalDirection: direction, goalRate: rate });
+    const water = LevelUpCalc.recommendedWaterMl({ weightKg, workoutsPerWeek: freq });
+
+    document.getElementById('calOut').textContent = cal + ' kcal';
+    document.getElementById('waterOut').textContent = water + ' ml (' + Math.round(water/29.57) + ' oz)';
+    document.getElementById('calCustom').placeholder = cal;
+    document.getElementById('waterCustom').placeholder = water;
+  }
+
+  document.getElementById('saveBtn').addEventListener('click', async () => {
+    const heightIn = parseFloat(document.getElementById('height').value);
+    const weightLb = parseFloat(document.getElementById('weight').value);
+    const age = parseFloat(document.getElementById('age').value);
+    const sex = document.getElementById('sex').value;
+    const freq = parseInt(document.getElementById('freq').value, 10);
+    const direction = directionEl.value;
+    const rate = document.getElementById('rate').value;
+    const medsRaw = document.getElementById('meds').value.trim();
+    const meds = medsRaw ? medsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    if (!heightIn || !weightLb || !age) {
+      document.getElementById('msg').textContent = 'Fill in height, weight, and age.';
+      return;
+    }
+
+    const heightCm = heightIn * 2.54;
+    const weightKg = weightLb * LevelUpCalc.KG_PER_LB;
+    const recCal = LevelUpCalc.recommendedCalories({ weightKg, heightCm, age, sex, workoutsPerWeek: freq, goalDirection: direction, goalRate: rate });
+    const recWater = LevelUpCalc.recommendedWaterMl({ weightKg, workoutsPerWeek: freq });
+
+    const calCustomVal = parseFloat(document.getElementById('calCustom').value);
+    const waterCustomVal = parseFloat(document.getElementById('waterCustom').value);
+
+    const profile = {
+      height_cm: heightCm,
+      weight_kg: weightKg,
+      sex,
+      workouts_per_week: freq,
+      weight_goal_direction: direction,
+      weight_goal_rate: direction === 'maintain' ? null : rate,
+      calorie_goal: calCustomVal || recCal,
+      calorie_goal_auto: !calCustomVal,
+      water_goal_ml: waterCustomVal || recWater,
+      water_goal_auto: !waterCustomVal,
+      med_names: meds,
+      onboarded: true,
+    };
+
+    const { error } = await sb.from('profiles').upsert({ id: session.user.id, ...profile });
+    if (error) { document.getElementById('msg').textContent = error.message; return; }
+
+    await sb.from('weight_logs').insert({ user_id: session.user.id, weight_kg: weightKg });
+
+    window.location.href = 'app.html';
+  });
+</script>
+</body>
+</html>

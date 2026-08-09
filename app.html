@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LevelUp</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <nav class="topbar">
+    <span class="brand">LevelUp</span>
+    <div class="links">
+      <span class="badge" id="levelBadge">Lv 1</span>
+      <span class="badge" id="coinBadge">🪙 0</span>
+      <a href="dashboard.html" class="desktop-only">Full Dashboard</a>
+      <a href="#" id="signOutLink">Sign Out</a>
+    </div>
+  </nav>
+
+  <div class="page" style="max-width:640px;">
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="stat-row"><span class="eyebrow">XP</span><span class="mono" id="xpText">0 / 100</span></div>
+      <div class="bar-track"><div class="bar-fill" id="xpBar" style="width:0%;"></div></div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;" id="workoutPanel">
+      <h2 style="margin-bottom:10px;">Today's Workout</h2>
+      <p class="eyebrow" id="workoutHint">Your plan stays a surprise until you hit start.</p>
+      <button class="primary block" id="startWorkoutBtn" style="margin-top:14px;">Start Workout</button>
+      <div id="workoutBody" style="margin-top:16px; display:none;"></div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <h2 style="margin-bottom:12px;">Calories</h2>
+      <div class="stat-row"><span class="eyebrow">Goal</span><span class="mono" id="calGoalText">—</span></div>
+      <div class="field" style="margin-top:10px;">
+        <label for="calInput">Logged today (kcal)</label>
+        <input id="calInput" type="number" />
+      </div>
+      <button class="block" id="saveCalBtn">Save</button>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <h2 style="margin-bottom:12px;">Water</h2>
+      <div class="stat-row"><span class="eyebrow">Goal</span><span class="mono" id="waterGoalText">—</span></div>
+      <div class="bar-track" style="margin: 10px 0;"><div class="bar-fill vitality" id="waterBar" style="width:0%;"></div></div>
+      <div class="mono" id="waterText" style="margin-bottom:10px;">0 ml</div>
+      <div class="grid grid-3">
+        <button id="addWater250">+250 ml</button>
+        <button id="addWater500">+500 ml</button>
+        <button id="addWater1000">+1 L</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;" id="medsPanel">
+      <h2 style="margin-bottom:12px;">Meds & Vitamins</h2>
+      <div id="medsList"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script src="js/supabase-client.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/xp-engine.js"></script>
+<script src="js/workout-engine.js"></script>
+<script src="js/data.js"></script>
+<script>
+let session, profile, todayLog, prs;
+
+function showToast(text) {
+  const t = document.getElementById('toast');
+  t.textContent = text;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function renderHeader() {
+  const prog = LevelUpXP.xpProgress(profile.xp || 0);
+  document.getElementById('levelBadge').textContent = 'Lv ' + prog.level;
+  document.getElementById('coinBadge').textContent = '🪙 ' + (profile.coins || 0);
+  document.getElementById('xpText').textContent = `${prog.current} / ${prog.needed}`;
+  document.getElementById('xpBar').style.width = Math.min(100, (prog.current / prog.needed) * 100) + '%';
+}
+
+async function refreshProfile() {
+  profile = await LevelUpData.getProfile(session.user.id);
+  renderHeader();
+}
+
+function isoWeekStart(d) {
+  const date = new Date(d);
+  const day = date.getDay(); // 0=Sun
+  date.setDate(date.getDate() - day);
+  return date.toISOString().slice(0, 10);
+}
+
+async function startWorkout() {
+  const today = new Date();
+  const weekStart = isoWeekStart(today);
+  const plan = await LevelUpData.getOrCreateWeeklyPlan(
+    session.user.id, weekStart, LevelUpWorkoutEngine.generateWeeklyPlan, profile.workouts_per_week || 4
+  );
+  const dayName = LevelUpWorkoutEngine.DAY_NAMES[today.getDay()];
+  const todayPlan = plan[dayName];
+
+  const body = document.getElementById('workoutBody');
+  document.getElementById('startWorkoutBtn').style.display = 'none';
+  body.style.display = 'block';
+
+  if (!todayPlan) {
+    body.innerHTML = `<div class="empty-state">Rest day. Recovery is part of the program — hydrate and hit your protein goal.</div>`;
+    return;
+  }
+
+  prs = await LevelUpData.getPRs(session.user.id);
+  const prMap = Object.fromEntries(prs.map(p => [p.exercise_name, p]));
+
+  let html = `<p class="eyebrow" style="margin-bottom:12px;">Est. ${todayPlan.est_minutes} min · ${todayPlan.muscle_groups.join(', ')}</p>`;
+  todayPlan.sets.forEach((s, exIdx) => {
+    html += `<div class="exercise-block"><h3>${s.exercise}</h3><p class="eyebrow">Target: ${s.target_sets} sets × ${s.target_reps} reps</p>`;
+    for (let i = 0; i < s.target_sets; i++) {
+      html += `<div class="workout-set" data-ex="${exIdx}" data-set="${i}">
+        <span class="mono">Set ${i + 1}</span>
+        <input type="number" placeholder="lb" class="weightInput" />
+        <input type="number" placeholder="reps" class="repsInput" />
+        <button class="logSetBtn">✓</button>
+      </div>`;
+    }
+    html += `</div>`;
+  });
+  html += `<button class="primary block" id="finishWorkoutBtn">Finish Workout</button>`;
+  body.innerHTML = html;
+
+  window.__todayPlan = todayPlan;
+  window.__loggedSets = [];
+
+  body.querySelectorAll('.logSetBtn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const row = e.target.closest('.workout-set');
+      const exIdx = parseInt(row.dataset.ex, 10);
+      const weight = parseFloat(row.querySelector('.weightInput').value);
+      const reps = parseInt(row.querySelector('.repsInput').value, 10);
+      if (!weight || !reps) return;
+      const exercise = window.__todayPlan.sets[exIdx];
+      window.__loggedSets.push({ exercise: exercise.exercise, muscle_group: exercise.muscle_group, weight_lb: weight, reps });
+      row.querySelectorAll('input').forEach(inp => inp.disabled = true);
+      btn.disabled = true;
+      btn.textContent = '✓';
+      await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.setLogged, LevelUpXP.COIN_REWARDS.setLogged);
+      await refreshProfile();
+    });
+  });
+
+  document.getElementById('finishWorkoutBtn').addEventListener('click', finishWorkout);
+}
+
+async function finishWorkout() {
+  if (!window.__loggedSets.length) { showToast('Log at least one set first.'); return; }
+
+  let prBonusXp = 0, prBonusCoins = 0, prHits = [];
+  for (const set of window.__loggedSets) {
+    const existing = prs.find(p => p.exercise_name === set.exercise);
+    const weightKg = set.weight_lb * LevelUpCalc.KG_PER_LB;
+    if (!existing || weightKg > existing.weight_kg) {
+      const pctIncrease = existing ? (weightKg - existing.weight_kg) / existing.weight_kg : 0.1;
+      const reward = LevelUpXP.prReward(pctIncrease);
+      prBonusXp += reward.xp;
+      prBonusCoins += reward.coins;
+      prHits.push(set.exercise);
+      await LevelUpData.upsertPR(session.user.id, set.exercise, weightKg, set.reps);
+    }
+  }
+
+  await LevelUpData.logWorkout(session.user.id, {
+    muscleGroups: window.__todayPlan.muscle_groups,
+    sets: window.__loggedSets,
+    durationMin: window.__todayPlan.est_minutes,
+    xpEarned: LevelUpXP.XP_REWARDS.workoutComplete + prBonusXp,
+    coinsEarned: LevelUpXP.COIN_REWARDS.workoutComplete + prBonusCoins,
+  });
+
+  await LevelUpData.grantXpAndCoins(
+    session.user.id,
+    LevelUpXP.XP_REWARDS.workoutComplete + prBonusXp,
+    LevelUpXP.COIN_REWARDS.workoutComplete + prBonusCoins
+  );
+  await refreshProfile();
+
+  document.getElementById('workoutBody').innerHTML = `<div class="empty-state">Workout logged. +${LevelUpXP.XP_REWARDS.workoutComplete + prBonusXp} XP${prHits.length ? ' · New PR: ' + prHits.join(', ') : ''}</div>`;
+  showToast(prHits.length ? `New PR! +${prBonusCoins} bonus coins` : 'Workout complete!');
+}
+
+async function renderNutrition() {
+  document.getElementById('calGoalText').textContent = (profile.calorie_goal || '—') + ' kcal';
+  document.getElementById('calInput').value = todayLog.calories_eaten ?? '';
+
+  document.getElementById('waterGoalText').textContent = (profile.water_goal_ml || '—') + ' ml';
+  document.getElementById('waterText').textContent = (todayLog.water_ml || 0) + ' ml';
+  const pct = profile.water_goal_ml ? Math.min(100, ((todayLog.water_ml || 0) / profile.water_goal_ml) * 100) : 0;
+  document.getElementById('waterBar').style.width = pct + '%';
+
+  const medsList = document.getElementById('medsList');
+  const meds = profile.med_names || [];
+  if (!meds.length) {
+    document.getElementById('medsPanel').style.display = 'none';
+  } else {
+    medsList.innerHTML = meds.map(m => {
+      const checked = todayLog.meds_taken && todayLog.meds_taken[m] ? 'checked' : '';
+      return `<label style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <input type="checkbox" class="medCheck" data-med="${m}" ${checked} style="width:auto;" /> ${m}
+      </label>`;
+    }).join('');
+    medsList.querySelectorAll('.medCheck').forEach(cb => {
+      cb.addEventListener('change', async (e) => {
+        const med = e.target.dataset.med;
+        const meds_taken = { ...(todayLog.meds_taken || {}), [med]: e.target.checked };
+        todayLog = await LevelUpData.upsertTodayLog(session.user.id, { meds_taken });
+        if (e.target.checked) {
+          await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.medCheckOff, LevelUpXP.COIN_REWARDS.medCheckOff);
+          await refreshProfile();
+          showToast('+' + LevelUpXP.XP_REWARDS.medCheckOff + ' XP');
+        }
+      });
+    });
+  }
+}
+
+async function saveCalories() {
+  const val = parseInt(document.getElementById('calInput').value, 10);
+  if (!val) return;
+  todayLog = await LevelUpData.upsertTodayLog(session.user.id, { calories_eaten: val });
+  const withinGoal = profile.calorie_goal && Math.abs(val - profile.calorie_goal) <= profile.calorie_goal * 0.1;
+  if (withinGoal && !todayLog.calorie_goal_rewarded) {
+    todayLog = await LevelUpData.upsertTodayLog(session.user.id, { calorie_goal_rewarded: true });
+    await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.calorieGoalHit, LevelUpXP.COIN_REWARDS.calorieGoalHit);
+    await refreshProfile();
+    showToast('Calorie goal hit! +' + LevelUpXP.XP_REWARDS.calorieGoalHit + ' XP');
+  } else {
+    showToast('Saved.');
+  }
+}
+
+async function addWater(ml) {
+  const newTotal = (todayLog.water_ml || 0) + ml;
+  todayLog = await LevelUpData.upsertTodayLog(session.user.id, { water_ml: newTotal });
+  await renderNutrition();
+  if (profile.water_goal_ml && newTotal >= profile.water_goal_ml && !todayLog.water_goal_rewarded) {
+    todayLog = await LevelUpData.upsertTodayLog(session.user.id, { water_goal_rewarded: true });
+    await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.waterGoalHit, LevelUpXP.COIN_REWARDS.waterGoalHit);
+    await refreshProfile();
+    showToast('Water goal hit! +' + LevelUpXP.XP_REWARDS.waterGoalHit + ' XP');
+  }
+}
+
+document.getElementById('startWorkoutBtn').addEventListener('click', startWorkout);
+document.getElementById('saveCalBtn').addEventListener('click', saveCalories);
+document.getElementById('addWater250').addEventListener('click', () => addWater(250));
+document.getElementById('addWater500').addEventListener('click', () => addWater(500));
+document.getElementById('addWater1000').addEventListener('click', () => addWater(1000));
+document.getElementById('signOutLink').addEventListener('click', (e) => { e.preventDefault(); LevelUpAuth.signOut(); });
+
+(async () => {
+  session = await LevelUpAuth.requireSession();
+  if (!session) return;
+  profile = await LevelUpData.getProfile(session.user.id);
+  if (!profile || !profile.onboarded) { window.location.href = 'onboarding.html'; return; }
+  todayLog = await LevelUpData.getTodayLog(session.user.id);
+  renderHeader();
+  await renderNutrition();
+})();
+</script>
+</body>
+</html>

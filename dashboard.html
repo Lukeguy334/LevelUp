@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LevelUp — Dashboard</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <nav class="topbar">
+    <span class="brand">LevelUp</span>
+    <div class="links">
+      <a href="app.html">Log Workout</a>
+      <a href="#" class="active">Dashboard</a>
+      <a href="#" id="signOutLink">Sign Out</a>
+    </div>
+  </nav>
+
+  <div id="blockedNotice" class="page" style="display:none;">
+    <div class="empty-state panel">This view is desktop-only. Open LevelUp on your computer to see your full progress.</div>
+  </div>
+
+  <div class="page" id="dashRoot" style="display:none; max-width:1080px;">
+    <div class="grid grid-2" style="margin-bottom:16px;">
+      <div class="panel" style="display:flex; gap:18px; align-items:center;">
+        <div id="charWrap" style="width:110px;"></div>
+        <div style="flex:1;">
+          <h2 id="levelText">Level 1</h2>
+          <div class="bar-track" style="margin: 8px 0;"><div class="bar-fill" id="xpBar" style="width:0%;"></div></div>
+          <div class="mono eyebrow" id="xpText"></div>
+          <div class="badge" style="margin-top:8px;">🪙 <span id="coinText">0</span> coins</div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 style="margin-bottom:10px;">Weight</h3>
+        <div id="weightChart"></div>
+        <div class="field" style="margin-top:10px;">
+          <label for="weightInput">Log today's weight (lb)</label>
+          <div style="display:flex; gap:8px;">
+            <input id="weightInput" type="number" />
+            <button id="logWeightBtn">Log</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:16px;">
+      <div class="panel">
+        <h3 style="margin-bottom:10px;">Personal Records</h3>
+        <div id="prList"></div>
+      </div>
+      <div class="panel">
+        <h3 style="margin-bottom:10px;">Recent Workouts</h3>
+        <div id="workoutHistory"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <h3 style="margin-bottom:12px;">Shop</h3>
+      <div class="shop-grid" id="shopGrid"></div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-bottom:12px;">Settings & Goals</h3>
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="setWeightGoalDir">Weight goal</label>
+          <select id="setWeightGoalDir">
+            <option value="maintain">Maintain</option>
+            <option value="gain">Gain</option>
+            <option value="lose">Lose</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="setWeightGoalRate">Pace</label>
+          <select id="setWeightGoalRate">
+            <option value="slow">Slow — 0.5 lb/mo</option>
+            <option value="moderate">Moderate — 1 lb/mo</option>
+            <option value="fast">Fast — 1.5–2 lb/mo</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="setCalGoal">Calorie goal (kcal)</label>
+          <input id="setCalGoal" type="number" />
+        </div>
+        <div class="field">
+          <label for="setWaterGoal">Water goal (ml)</label>
+          <input id="setWaterGoal" type="number" />
+        </div>
+        <div class="field">
+          <label for="setFreq">Workouts per week</label>
+          <select id="setFreq">
+            <option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="setMeds">Meds / vitamins (comma separated)</label>
+          <input id="setMeds" />
+        </div>
+      </div>
+      <button class="primary" id="saveSettingsBtn">Save Settings</button>
+      <p class="eyebrow" id="settingsMsg" style="margin-top:8px;"></p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script src="js/supabase-client.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/xp-engine.js"></script>
+<script src="js/workout-engine.js"></script>
+<script src="js/character.js"></script>
+<script src="js/data.js"></script>
+<script>
+let session, profile;
+
+function showToast(text) {
+  const t = document.getElementById('toast');
+  t.textContent = text; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function checkDesktop() {
+  const isDesktop = window.innerWidth >= 760 && window.matchMedia('(pointer: fine)').matches;
+  document.getElementById('dashRoot').style.display = isDesktop ? 'block' : 'none';
+  document.getElementById('blockedNotice').style.display = isDesktop ? 'none' : 'block';
+  return isDesktop;
+}
+
+function renderWeightChart(logs) {
+  const wrap = document.getElementById('weightChart');
+  if (!logs.length) { wrap.innerHTML = '<p class="eyebrow">No entries yet.</p>'; return; }
+  const w = 460, h = 140, pad = 24;
+  const weights = logs.map(l => l.weight_kg / LevelUpCalc.KG_PER_LB);
+  const min = Math.min(...weights) - 2, max = Math.max(...weights) + 2;
+  const pts = logs.map((l, i) => {
+    const x = pad + (i / Math.max(1, logs.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((weights[i] - min) / (max - min || 1)) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  wrap.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">
+    <polyline points="${pts}" fill="none" stroke="#E8952C" stroke-width="2.5" />
+  </svg>
+  <div class="eyebrow">${weights[0].toFixed(1)} lb → ${weights[weights.length-1].toFixed(1)} lb</div>`;
+}
+
+function renderPRs(prs) {
+  const el = document.getElementById('prList');
+  if (!prs.length) { el.innerHTML = '<p class="empty-state">No PRs logged yet — finish a workout to set your first.</p>'; return; }
+  el.innerHTML = prs.map(p => `<div class="stat-row"><span>${p.exercise_name}</span><span class="mono">${Math.round(p.weight_kg / LevelUpCalc.KG_PER_LB)} lb × ${p.reps}</span></div>`).join('');
+}
+
+function renderWorkoutHistory(logs) {
+  const el = document.getElementById('workoutHistory');
+  if (!logs.length) { el.innerHTML = '<p class="empty-state">No workouts logged yet.</p>'; return; }
+  el.innerHTML = logs.slice(0, 8).map(w => `<div class="stat-row"><span>${w.logged_on} — ${w.muscle_groups.join(', ')}</span><span class="mono">+${w.xp_earned} XP</span></div>`).join('');
+}
+
+async function renderShop() {
+  const [items, inv] = await Promise.all([LevelUpData.getShopItems(), LevelUpData.getInventory(session.user.id)]);
+  const ownedIds = new Set(inv.map(i => i.item_id));
+  const el = document.getElementById('shopGrid');
+  el.innerHTML = items.map(item => {
+    const owned = ownedIds.has(item.id);
+    const equipped = inv.find(i => i.item_id === item.id)?.equipped;
+    const locked = profile.level < item.min_level;
+    return `<div class="shop-item ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}">
+      <div class="emoji">${item.emoji}</div>
+      <div>${item.name}</div>
+      <div class="eyebrow">${locked ? 'Lv ' + item.min_level + ' required' : (owned ? (equipped ? 'Equipped' : 'Owned') : item.cost + ' 🪙')}</div>
+      <button data-id="${item.id}" data-cost="${item.cost}" data-cat="${item.category}" data-owned="${owned}" data-locked="${locked}" style="margin-top:8px; width:100%;">
+        ${locked ? 'Locked' : owned ? (equipped ? 'Equipped' : 'Equip') : 'Buy'}
+      </button>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { id, cost, cat, owned, locked } = btn.dataset;
+      if (locked === 'true') return;
+      if (owned === 'true') {
+        const catItems = inv.filter(i => i.shop_items.category === cat);
+        await LevelUpData.equipItem(session.user.id, id, cat, catItems);
+        showToast('Equipped');
+      } else {
+        const res = await LevelUpData.buyItem(session.user.id, id, parseInt(cost, 10));
+        if (!res.ok) { showToast('Not enough coins'); return; }
+        profile = await LevelUpData.getProfile(session.user.id);
+        showToast('Purchased!');
+      }
+      await renderAll();
+    });
+  });
+}
+
+async function renderCharacterPanel() {
+  const inv = await LevelUpData.getInventory(session.user.id);
+  const equipped = inv.filter(i => i.equipped).map(i => i.shop_items);
+  document.getElementById('charWrap').innerHTML = LevelUpCharacter.renderCharacter({ level: profile.level || 1, equipped });
+  const prog = LevelUpXP.xpProgress(profile.xp || 0);
+  document.getElementById('levelText').textContent = 'Level ' + prog.level;
+  document.getElementById('xpBar').style.width = Math.min(100, (prog.current / prog.needed) * 100) + '%';
+  document.getElementById('xpText').textContent = `${prog.current} / ${prog.needed} XP`;
+  document.getElementById('coinText').textContent = profile.coins || 0;
+}
+
+function populateSettingsForm() {
+  document.getElementById('setWeightGoalDir').value = profile.weight_goal_direction || 'maintain';
+  document.getElementById('setWeightGoalRate').value = profile.weight_goal_rate || 'moderate';
+  document.getElementById('setCalGoal').value = profile.calorie_goal || '';
+  document.getElementById('setWaterGoal').value = profile.water_goal_ml || '';
+  document.getElementById('setFreq').value = profile.workouts_per_week || 4;
+  document.getElementById('setMeds').value = (profile.med_names || []).join(', ');
+}
+
+async function renderAll() {
+  const [weightLogs, prs, workoutLogs] = await Promise.all([
+    LevelUpData.getWeightLogs(session.user.id),
+    LevelUpData.getPRs(session.user.id),
+    LevelUpData.getWorkoutLogs(session.user.id),
+  ]);
+  renderWeightChart(weightLogs);
+  renderPRs(prs);
+  renderWorkoutHistory(workoutLogs);
+  await renderShop();
+  await renderCharacterPanel();
+  populateSettingsForm();
+}
+
+document.getElementById('logWeightBtn').addEventListener('click', async () => {
+  const lb = parseFloat(document.getElementById('weightInput').value);
+  if (!lb) return;
+  await LevelUpData.addWeightLog(session.user.id, lb * LevelUpCalc.KG_PER_LB, new Date().toISOString().slice(0, 10));
+  await LevelUpData.upsertProfile(session.user.id, { weight_kg: lb * LevelUpCalc.KG_PER_LB });
+  document.getElementById('weightInput').value = '';
+  showToast('Weight logged');
+  await renderAll();
+});
+
+document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+  const meds = document.getElementById('setMeds').value.split(',').map(s => s.trim()).filter(Boolean);
+  await LevelUpData.upsertProfile(session.user.id, {
+    weight_goal_direction: document.getElementById('setWeightGoalDir').value,
+    weight_goal_rate: document.getElementById('setWeightGoalRate').value,
+    calorie_goal: parseInt(document.getElementById('setCalGoal').value, 10) || profile.calorie_goal,
+    calorie_goal_auto: false,
+    water_goal_ml: parseInt(document.getElementById('setWaterGoal').value, 10) || profile.water_goal_ml,
+    water_goal_auto: false,
+    workouts_per_week: parseInt(document.getElementById('setFreq').value, 10),
+    med_names: meds,
+  });
+  profile = await LevelUpData.getProfile(session.user.id);
+  document.getElementById('settingsMsg').textContent = 'Saved.';
+  showToast('Settings saved');
+});
+
+document.getElementById('signOutLink').addEventListener('click', (e) => { e.preventDefault(); LevelUpAuth.signOut(); });
+window.addEventListener('resize', checkDesktop);
+
+(async () => {
+  session = await LevelUpAuth.requireSession();
+  if (!session) return;
+  profile = await LevelUpData.getProfile(session.user.id);
+  if (!profile || !profile.onboarded) { window.location.href = 'onboarding.html'; return; }
+  if (!checkDesktop()) return;
+  await renderAll();
+})();
+</script>
+</body>
+</html>

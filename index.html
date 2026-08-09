@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LevelUp — Sign In</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="center-screen">
+    <div class="panel" style="width: 100%; max-width: 380px;">
+      <div style="text-align:center; margin-bottom: 22px;">
+        <h1>LevelUp</h1>
+        <p class="eyebrow">Level up in the gym, not just on paper</p>
+      </div>
+
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" />
+      </div>
+
+      <button class="primary block" id="signInBtn" style="margin-bottom:10px;">Sign In</button>
+      <button class="ghost block" id="signUpBtn">Create Account</button>
+
+      <p id="msg" class="eyebrow" style="margin-top:14px; min-height: 1em;"></p>
+    </div>
+  </div>
+
+<script src="js/supabase-client.js"></script>
+<script>
+  const msg = document.getElementById('msg');
+
+  async function routeAfterAuth() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return;
+    const { data: profile } = await sb.from('profiles').select('onboarded').eq('id', session.user.id).single();
+    window.location.href = (profile && profile.onboarded) ? 'app.html' : 'onboarding.html';
+  }
+
+  document.getElementById('signInBtn').addEventListener('click', async () => {
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    msg.textContent = 'Signing in…';
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) { msg.textContent = error.message; return; }
+    routeAfterAuth();
+  });
+
+  document.getElementById('signUpBtn').addEventListener('click', async () => {
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    if (password.length < 6) { msg.textContent = 'Password needs 6+ characters.'; return; }
+    msg.textContent = 'Creating account…';
+    const { data, error } = await sb.auth.signUp({ email, password });
+    if (error) { msg.textContent = error.message; return; }
+    if (data.session) { routeAfterAuth(); }
+    else { msg.textContent = 'Check your email to confirm, then sign in.'; }
+  });
+
+  routeAfterAuth();
+</script>
+</body>
+</html>
