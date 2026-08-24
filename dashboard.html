@@ -12,6 +12,7 @@
     <span class="brand">LevelUp</span>
     <div class="links">
       <a href="app.html">Log Workout</a>
+      <a href="schedule.html">Schedule</a>
       <a href="#" class="active">Dashboard</a>
       <a href="#" id="signOutLink">Sign Out</a>
     </div>
@@ -30,8 +31,18 @@
           <div class="bar-track" style="margin: 8px 0;"><div class="bar-fill" id="xpBar" style="width:0%;"></div></div>
           <div class="mono eyebrow" id="xpText"></div>
           <div class="badge" style="margin-top:8px;">🪙 <span id="coinText">0</span> coins</div>
+          <div id="prestigeArea" style="margin-top:10px; display:none;">
+            <button class="primary" id="prestigeBtn">Prestige ⟳</button>
+          </div>
         </div>
       </div>
+      <div class="panel">
+        <h3 style="margin-bottom:10px;">Streaks</h3>
+        <div id="streakList" class="mono"></div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:16px;">
       <div class="panel">
         <h3 style="margin-bottom:10px;">Weight</h3>
         <div id="weightChart"></div>
@@ -43,22 +54,21 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="grid grid-2" style="margin-bottom:16px;">
       <div class="panel">
         <h3 style="margin-bottom:10px;">Personal Records</h3>
         <div id="prList"></div>
       </div>
-      <div class="panel">
-        <h3 style="margin-bottom:10px;">Recent Workouts</h3>
-        <div id="workoutHistory"></div>
-      </div>
     </div>
 
     <div class="panel" style="margin-bottom:16px;">
-      <h3 style="margin-bottom:12px;">Shop</h3>
-      <div class="shop-grid" id="shopGrid"></div>
+      <h3 style="margin-bottom:10px;">Recent Workouts</h3>
+      <div id="workoutHistory"></div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <h3 style="margin-bottom:6px;">Shop</h3>
+      <p class="eyebrow" style="margin-bottom:14px;">Mythical gear grants a passive XP/coin boost while equipped.</p>
+      <div id="shopByRarity"></div>
     </div>
 
     <div class="panel">
@@ -85,7 +95,7 @@
           <input id="setCalGoal" type="number" />
         </div>
         <div class="field">
-          <label for="setWaterGoal">Water goal (ml)</label>
+          <label for="setWaterGoal">Water goal (oz)</label>
           <input id="setWaterGoal" type="number" />
         </div>
         <div class="field">
@@ -97,6 +107,30 @@
         <div class="field">
           <label for="setMeds">Meds / vitamins (comma separated)</label>
           <input id="setMeds" />
+        </div>
+        <div class="field">
+          <label for="setWake">Wake up</label>
+          <input id="setWake" type="time" />
+        </div>
+        <div class="field">
+          <label for="setSleep">Go to bed</label>
+          <input id="setSleep" type="time" />
+        </div>
+        <div class="field">
+          <label for="setBreakfast">Breakfast time</label>
+          <input id="setBreakfast" type="time" />
+        </div>
+        <div class="field">
+          <label for="setLunch">Lunch time</label>
+          <input id="setLunch" type="time" />
+        </div>
+        <div class="field">
+          <label for="setDinner">Dinner time</label>
+          <input id="setDinner" type="time" />
+        </div>
+        <div class="field">
+          <label for="setSnack">Snack time</label>
+          <input id="setSnack" type="time" />
         </div>
       </div>
       <button class="primary" id="saveSettingsBtn">Save Settings</button>
@@ -111,15 +145,17 @@
 <script src="js/calc.js"></script>
 <script src="js/xp-engine.js"></script>
 <script src="js/workout-engine.js"></script>
+<script src="js/timeline.js"></script>
 <script src="js/character.js"></script>
 <script src="js/data.js"></script>
+<script src="js/game-logic.js"></script>
 <script>
 let session, profile;
 
 function showToast(text) {
   const t = document.getElementById('toast');
   t.textContent = text; t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  setTimeout(() => t.classList.remove('show'), 2400);
 }
 
 function checkDesktop() {
@@ -128,6 +164,9 @@ function checkDesktop() {
   document.getElementById('blockedNotice').style.display = isDesktop ? 'none' : 'block';
   return isDesktop;
 }
+
+function ozFromMl(ml) { return Math.round(ml / 29.5735); }
+function mlFromOz(oz) { return Math.round(oz * 29.5735); }
 
 function renderWeightChart(logs) {
   const wrap = document.getElementById('weightChart');
@@ -155,42 +194,62 @@ function renderPRs(prs) {
 function renderWorkoutHistory(logs) {
   const el = document.getElementById('workoutHistory');
   if (!logs.length) { el.innerHTML = '<p class="empty-state">No workouts logged yet.</p>'; return; }
-  el.innerHTML = logs.slice(0, 8).map(w => `<div class="stat-row"><span>${w.logged_on} — ${w.muscle_groups.join(', ')}</span><span class="mono">+${w.xp_earned} XP</span></div>`).join('');
+  el.innerHTML = logs.slice(0, 8).map(w => `<div class="stat-row"><span>${w.logged_on} — ${w.muscle_groups.join(', ')}</span><span class="mono">+${w.xp_earned} XP · +${w.coins_earned} 🪙</span></div>`).join('');
 }
+
+const RARITY_ORDER = ['common', 'uncommon', 'rare', 'ultra_rare', 'mythical'];
+const RARITY_LABEL = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare', ultra_rare: 'Ultra Rare', mythical: 'Mythical' };
 
 async function renderShop() {
   const [items, inv] = await Promise.all([LevelUpData.getShopItems(), LevelUpData.getInventory(session.user.id)]);
   const ownedIds = new Set(inv.map(i => i.item_id));
-  const el = document.getElementById('shopGrid');
-  el.innerHTML = items.map(item => {
-    const owned = ownedIds.has(item.id);
-    const equipped = inv.find(i => i.item_id === item.id)?.equipped;
-    const locked = profile.level < item.min_level;
-    return `<div class="shop-item ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}">
-      <div class="emoji">${item.emoji}</div>
-      <div>${item.name}</div>
-      <div class="eyebrow">${locked ? 'Lv ' + item.min_level + ' required' : (owned ? (equipped ? 'Equipped' : 'Owned') : item.cost + ' 🪙')}</div>
-      <button data-id="${item.id}" data-cost="${item.cost}" data-cat="${item.category}" data-owned="${owned}" data-locked="${locked}" style="margin-top:8px; width:100%;">
-        ${locked ? 'Locked' : owned ? (equipped ? 'Equipped' : 'Equip') : 'Buy'}
-      </button>
-    </div>`;
-  }).join('');
+  const root = document.getElementById('shopByRarity');
+  root.innerHTML = '';
 
-  el.querySelectorAll('button').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const { id, cost, cat, owned, locked } = btn.dataset;
-      if (locked === 'true') return;
-      if (owned === 'true') {
-        const catItems = inv.filter(i => i.shop_items.category === cat);
-        await LevelUpData.equipItem(session.user.id, id, cat, catItems);
-        showToast('Equipped');
-      } else {
-        const res = await LevelUpData.buyItem(session.user.id, id, parseInt(cost, 10));
-        if (!res.ok) { showToast('Not enough coins'); return; }
-        profile = await LevelUpData.getProfile(session.user.id);
-        showToast('Purchased!');
-      }
-      await renderAll();
+  RARITY_ORDER.forEach(rarity => {
+    const group = items.filter(i => (i.rarity || 'common') === rarity);
+    if (!group.length) return;
+    const section = document.createElement('div');
+    section.style.marginBottom = '18px';
+    section.innerHTML = `<h4 class="rarity-${rarity}" style="margin-bottom:10px;">${RARITY_LABEL[rarity]}</h4>
+      <div class="shop-grid" data-rarity="${rarity}"></div>`;
+    root.appendChild(section);
+
+    const grid = section.querySelector('.shop-grid');
+    grid.innerHTML = group.map(item => {
+      const owned = ownedIds.has(item.id);
+      const equipped = inv.find(i => i.item_id === item.id)?.equipped;
+      const locked = profile.level < item.min_level;
+      const effectText = item.effect_type ? `+${Math.round(item.effect_value * 100)}% ${item.effect_category} ${item.effect_type === 'coin_mult' ? 'coins' : 'XP'}` : '';
+      return `<div class="shop-item rarity-${rarity} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}">
+        <div class="emoji">${item.emoji}</div>
+        <div>${item.name}</div>
+        ${effectText ? `<div class="eyebrow" style="color:var(--ember);">${effectText}</div>` : ''}
+        <div class="eyebrow">${owned ? (equipped ? 'Equipped' : 'Owned') : (locked ? 'Lv ' + item.min_level + ' required' : item.cost + ' 🪙')}</div>
+        <button data-id="${item.id}" data-cost="${item.cost}" data-cat="${item.category}" data-owned="${owned}" data-locked="${locked}" style="margin-top:8px; width:100%;">
+          ${owned ? (equipped ? 'Equipped' : 'Equip') : (locked ? 'Locked' : 'Buy')}
+        </button>
+      </div>`;
+    }).join('');
+
+    grid.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const { id, cost, cat, owned, locked } = btn.dataset;
+        // Level lock only blocks NEW purchases — an item you already own stays
+        // equippable even if a prestige reset your level back down.
+        if (locked === 'true' && owned !== 'true') return;
+        if (owned === 'true') {
+          const catItems = inv.filter(i => i.shop_items.category === cat);
+          await LevelUpData.equipItem(session.user.id, id, cat, catItems);
+          showToast('Equipped');
+        } else {
+          const res = await LevelUpData.buyItem(session.user.id, id, parseInt(cost, 10));
+          if (!res.ok) { showToast('Not enough coins'); return; }
+          profile = await LevelUpData.getProfile(session.user.id);
+          showToast('Purchased!');
+        }
+        await renderAll();
+      });
     });
   });
 }
@@ -198,21 +257,55 @@ async function renderShop() {
 async function renderCharacterPanel() {
   const inv = await LevelUpData.getInventory(session.user.id);
   const equipped = inv.filter(i => i.equipped).map(i => i.shop_items);
+  const X = LevelUpXP;
   document.getElementById('charWrap').innerHTML = LevelUpCharacter.renderCharacter({ level: profile.level || 1, equipped });
-  const prog = LevelUpXP.xpProgress(profile.xp || 0);
-  document.getElementById('levelText').textContent = 'Level ' + prog.level;
-  document.getElementById('xpBar').style.width = Math.min(100, (prog.current / prog.needed) * 100) + '%';
-  document.getElementById('xpText').textContent = `${prog.current} / ${prog.needed} XP`;
+
+  const prog = X.xpProgress(profile.xp || 0, profile.prestige || 0);
+  document.getElementById('levelText').textContent = X.levelDisplayName(prog.level, profile.prestige || 0) + ` (Lv ${prog.level})`;
+  if (prog.maxed) {
+    document.getElementById('xpBar').style.width = '100%';
+    document.getElementById('xpText').textContent = 'MAX LEVEL — ' + X.levelMultiplier(prog.level) + 'x XP multiplier';
+    document.getElementById('prestigeArea').style.display = 'block';
+  } else {
+    document.getElementById('xpBar').style.width = Math.min(100, (prog.current / prog.needed) * 100) + '%';
+    document.getElementById('xpText').textContent = `${prog.current} / ${prog.needed} XP · ${X.levelMultiplier(prog.level)}x multiplier`;
+    document.getElementById('prestigeArea').style.display = 'none';
+  }
   document.getElementById('coinText').textContent = profile.coins || 0;
+
+  const X2 = LevelUpXP;
+  const streakLines = [
+    `Login streak: ${profile.login_streak_count || 0} days`,
+    `Workout streak: ${profile.workout_streak_count || 0} days (${X2.workoutStreakMultiplier(profile.workout_streak_count || 0)}x workout XP)`,
+    `Meds streak: ${profile.meds_streak_count || 0} days (${X2.medsStreakMultiplier(profile.meds_streak_count || 0)}x meds XP)`,
+    `Nutrition streak: ${profile.nutrition_streak_count || 0} days (${X2.nutritionStreakMultiplier(profile.nutrition_streak_count || 0)}x all XP)`,
+    `Prestige: ${profile.prestige || 0} (${X2.prestigeMultiplier(profile.prestige || 0)}x XP & coins)`,
+    `Spins available: ${profile.spins_available || 0}`,
+  ];
+  document.getElementById('streakList').innerHTML = streakLines.map(l => `<div class="stat-row"><span>${l}</span></div>`).join('');
 }
+
+document.getElementById('prestigeBtn').addEventListener('click', async () => {
+  if (!confirm('Prestige resets your level back to 1 and increases XP requirements 1.2x, in exchange for a permanent +0.2 XP/coin multiplier. This cannot be undone. Continue?')) return;
+  const newPrestige = (profile.prestige || 0) + 1;
+  profile = await LevelUpData.upsertProfile(session.user.id, { prestige: newPrestige, xp: 0, level: 1 });
+  showToast(`Prestiged! Now rank ${LevelUpXP.toRoman(newPrestige)} — ${LevelUpXP.prestigeMultiplier(newPrestige)}x XP & coins.`);
+  await renderAll();
+});
 
 function populateSettingsForm() {
   document.getElementById('setWeightGoalDir').value = profile.weight_goal_direction || 'maintain';
   document.getElementById('setWeightGoalRate').value = profile.weight_goal_rate || 'moderate';
   document.getElementById('setCalGoal').value = profile.calorie_goal || '';
-  document.getElementById('setWaterGoal').value = profile.water_goal_ml || '';
+  document.getElementById('setWaterGoal').value = profile.water_goal_ml ? ozFromMl(profile.water_goal_ml) : '';
   document.getElementById('setFreq').value = profile.workouts_per_week || 4;
   document.getElementById('setMeds').value = (profile.med_names || []).join(', ');
+  document.getElementById('setWake').value = profile.wake_time || '';
+  document.getElementById('setSleep').value = profile.sleep_time || '';
+  document.getElementById('setBreakfast').value = profile.breakfast_time || '';
+  document.getElementById('setLunch').value = profile.lunch_time || '';
+  document.getElementById('setDinner').value = profile.dinner_time || '';
+  document.getElementById('setSnack').value = profile.snack_time || '';
 }
 
 async function renderAll() {
@@ -241,15 +334,22 @@ document.getElementById('logWeightBtn').addEventListener('click', async () => {
 
 document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
   const meds = document.getElementById('setMeds').value.split(',').map(s => s.trim()).filter(Boolean);
+  const waterOz = parseInt(document.getElementById('setWaterGoal').value, 10);
   await LevelUpData.upsertProfile(session.user.id, {
     weight_goal_direction: document.getElementById('setWeightGoalDir').value,
     weight_goal_rate: document.getElementById('setWeightGoalRate').value,
     calorie_goal: parseInt(document.getElementById('setCalGoal').value, 10) || profile.calorie_goal,
     calorie_goal_auto: false,
-    water_goal_ml: parseInt(document.getElementById('setWaterGoal').value, 10) || profile.water_goal_ml,
+    water_goal_ml: waterOz ? mlFromOz(waterOz) : profile.water_goal_ml,
     water_goal_auto: false,
     workouts_per_week: parseInt(document.getElementById('setFreq').value, 10),
     med_names: meds,
+    wake_time: document.getElementById('setWake').value || null,
+    sleep_time: document.getElementById('setSleep').value || null,
+    breakfast_time: document.getElementById('setBreakfast').value || null,
+    lunch_time: document.getElementById('setLunch').value || null,
+    dinner_time: document.getElementById('setDinner').value || null,
+    snack_time: document.getElementById('setSnack').value || null,
   });
   profile = await LevelUpData.getProfile(session.user.id);
   document.getElementById('settingsMsg').textContent = 'Saved.';
