@@ -118,10 +118,10 @@ function renderHeader() {
   }
 
   const bits = [];
-  if (profile.workout_streak_count) bits.push(`🏋️ Workout streak: ${profile.workout_streak_count}d (${X.workoutStreakMultiplier(profile.workout_streak_count)}x)`);
-  if (profile.meds_streak_count) bits.push(`💊 Meds streak: ${profile.meds_streak_count}d (${X.medsStreakMultiplier(profile.meds_streak_count)}x)`);
-  if (profile.nutrition_streak_count >= 5) bits.push(`🥗 Nutrition streak: ${profile.nutrition_streak_count}d (${X.nutritionStreakMultiplier(profile.nutrition_streak_count)}x)`);
-  if (profile.login_streak_count) bits.push(`🔥 Login streak: ${profile.login_streak_count}d`);
+  if (profile.workout_streak_count) bits.push(`🏋️ Workout streak: ${profile.workout_streak_count} Days (${X.workoutStreakMultiplier(profile.workout_streak_count)}x)`);
+  if (profile.meds_streak_count) bits.push(`💊 Meds streak: ${profile.meds_streak_count} Days (${X.medsStreakMultiplier(profile.meds_streak_count)}x)`);
+  if (profile.nutrition_streak_count >= 5) bits.push(`🥗 Nutrition streak: ${profile.nutrition_streak_count} Days (${X.nutritionStreakMultiplier(profile.nutrition_streak_count)}x)`);
+  if (profile.login_streak_count) bits.push(`🔥 Login streak: ${profile.login_streak_count} Days`);
   document.getElementById('streakSummary').textContent = bits.join('   ');
 
   document.getElementById('spinPanel').style.display = (profile.spins_available || 0) > 0 ? 'block' : 'none';
