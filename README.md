@@ -1,79 +1,118 @@
+[README.md](https://github.com/user-attachments/files/31396163/README.md)
 # LevelUp
 
-A gamified all-in-one fitness tracker: gym log, calorie/water/meds tracking,
-an RPG character that levels up, and a shop you buy gear with workout coins.
+A gamified all-in-one fitness tracker: gym log, meal-based calorie tracking,
+water/meds tracking with streaks, an RPG character with 20 levels + prestige,
+a five-rarity shop, a weekly spin wheel, and a schedule you can reshuffle.
 
-## 1. Set up the backend (Supabase — free)
+## Updating an existing deployment (you already have this live)
 
-Your phone and computer need to see the *same* data, and GitHub Pages only
-serves static files — it can't run a database. Supabase gives you auth +
-a Postgres database for free and works fine from plain HTML/JS.
+Your Supabase project already has real data in it, so **don't re-run
+`schema.sql`** — instead:
 
-1. Go to https://supabase.com → New Project (free tier is plenty).
-2. Once it's created, open **SQL Editor** → paste in everything from
-   `supabase/schema.sql` → Run. This creates all tables, security rules,
-   and the starter shop inventory.
-3. Go to **Settings → API**. Copy the **Project URL** and the **anon public
-   key**.
-4. Open `js/supabase-client.js` and paste them in:
-   ```js
-   const SUPABASE_URL = 'https://xxxxx.supabase.co';
-   const SUPABASE_ANON_KEY = 'eyJ...';
-   ```
-5. In Supabase, go to **Authentication → Providers → Email** and turn off
-   "Confirm email" if you want to skip the verification-email step for
-   your own single-user app (optional, easier to just log in and go).
+1. Open your Supabase project → **SQL Editor**.
+2. Open `supabase/migration_v2.sql` from this folder, copy all of it, paste
+   into the SQL Editor, and click **Run**. This only *adds* new columns and
+   tables (meal logging, streaks, prestige, spin wheel, shop rarities/effects)
+   — it does not touch your existing workouts, PRs, weight logs, XP, or coins.
+3. Replace every file in your GitHub repo with the files in this folder.
+   **`js/supabase-client.js` is a fresh copy with placeholder keys** — open it
+   and paste your real Supabase URL/anon key back in before you push, or
+   login will break.
+4. Push to GitHub. Give Pages a minute to redeploy, then reload the site.
 
-## 2. Deploy to GitHub Pages
+If this is a first-time setup instead, follow the original steps: create a
+Supabase project, run `schema.sql` (not the migration), paste your keys into
+`js/supabase-client.js`, then push to GitHub and turn on Pages.
 
-1. Create a new GitHub repo, push this whole folder to it.
-2. Repo → **Settings → Pages** → Source: `main` branch, root folder.
-3. Your app will be live at `https://<username>.github.io/<repo>/`.
+## What's new in this update
 
-## 3. First run
+**Calories are now meal-based.** Log each meal by name + calories; they sum
+into a running total against your goal, same pattern as water.
 
-1. Open the site → **Create Account** with any email/password (this is
-   just for you, so it doesn't need to be a real inbox unless you left
-   email confirmation on).
-2. You'll land on the setup screen: height, weight, age, sex, workout
-   frequency, and your weight goal. It calculates a recommended calorie
-   and water target (Mifflin-St Jeor + activity multiplier) that you can
-   override with your own number.
-3. From then on:
-   - **On your phone**: open the site, hit **Start Workout** (only reveals
-     that day's exercises when you press it — no scrolling ahead), log
-     your sets, track water/calories/meds.
-   - **On your computer**: open `dashboard.html` (linked from the top
-     nav, which only shows on wider screens) for your weight chart,
-     workout history, PRs, character, and the shop.
+**Timing-aware progress bars.** Set your wake/sleep/meal times (onboarding,
+or Settings on the dashboard) and both the calorie and water bars show tick
+marks for wake, breakfast, lunch, snack, dinner, and bed — each with the %
+and the expected value (kcal or oz) at that point in your day. Water fills
+linearly from wake to bed; calories follow meal-sized jumps (breakfast
+22.5%, lunch 32.5%, dinner 32.5%, snack 12.5% — the midpoints of the ranges
+you gave me, since they need to add up to 100%).
 
-## How the pieces work
+**Meds/vitamins**: each box can only be checked once a day (checking it
+greys it out; there's no unchecking). Once every box for the day is
+checked, a **Collect XP** button appears — that's the only way the 5 XP
+(scaled by your meds streak) gets paid out, so there's no more toggling for
+free XP.
 
-- **Workout generator** (`js/workout-engine.js`): builds your week fresh
-  each Sunday. It picks muscle groups per day so the same group isn't
-  hit again for at least 2 full rest days (core is exempt — abs recover
-  faster), mixes big + small groups in the same session like you asked
-  (squats + bench + pull-ups can land on one day), and stops adding
-  exercises once a day would run past ~55 min.
-- **XP / leveling** (`js/xp-engine.js`): every logged set, finished
-  workout, hit goal, med check-off, and PR gives XP + coins. PRs scale
-  their coin bonus with how big the jump was.
-- **Character** (`js/character.js`): the silhouette gets visibly more
-  built at level 6 and level 12, and equipped shop items (hats, outfits,
-  pets, accessories) layer on top.
-- **Desktop-only log**: this is a soft restriction (screen-width +
-  pointer-type check), not real security — it's just there so your phone
-  view stays focused on quick logging instead of a full chart. Anyone
-  could bypass it by resizing a browser window; that was the tradeoff
-  you asked for to keep things simple.
+**Five new streak systems**, each shown on-screen (app page header + the
+dashboard's Streaks panel):
+- **Meds streak** — 1x (days 1-3) → 1.4x (days 4-9) → 2x + 1 coin/day
+  (day 10+). Missing a full day of meds resets it to day 1.
+- **Workout streak** — counts consecutive *scheduled* training days you
+  actually completed. Off days (rest days in your plan) don't break it, and
+  working out on an off day doesn't add to it either. 1x → 1.2x (day 3+) →
+  1.4x (day 10+) → 1.5x (day 20+) → 1.75x (day 50+).
+- **Nutrition streak** — hit both your calorie and water goal, every day, 5
+  days running, for a 1.2x multiplier on all XP that stays active as long as
+  you keep hitting both.
+- **Login streak** — logging in daily pays 5 XP once per day and, every 7
+  consecutive days, unlocks a spin on the wheel.
+- **Combo bonus** — hit calorie, water, workout, and meds all in the same
+  day for a flat 50 XP bonus (once per day).
 
-## Notes / things you may want to tweak later
+**Weekly spin wheel** shows up on the app page whenever you have a spin
+banked. Prizes: a free shop item (cheapest one you don't own yet), a 1.5x
+XP boost (2 days), a 1.75x XP boost (1 day), a 1.2x XP+coins boost (1
+week), 25 or 50 XP (scales with your level, like any other XP), or 10/25/50
+coins.
 
-- The "2 rest days" muscle-group rule and the ~55 min session cap are
-  both constants at the top of `workout-engine.js` if you want to loosen
-  or tighten them.
-- The exercise list is a starting set — add more to `EXERCISES` in the
-  same file to get more variety in what the generator can pick.
-- Calorie-goal XP triggers when logged calories land within 10% of your
-  goal for the day; water XP triggers once you cross the goal. Both only
-  fire once per day.
+**Workout XP** is now 1 XP per set, 5 XP per exercise you complete all sets
+of, and 20 XP for finishing the workout — with a summary breakdown shown
+right after you finish.
+
+**20 levels**, each with a name and its own XP multiplier (Shrimp at 1x up
+through Champion at 4.75x and Titan at 5x). Olympian (level 20, the max
+level) shares Titan's 5x rather than getting a higher tier of its own,
+since there's nowhere further to level up into. Full table and thresholds
+are in `LEVEL_META` in `js/xp-engine.js`.
+
+**Prestige**: once you hit level 20 (max), a Prestige button appears on the
+dashboard. It resets you to level 1 with a fresh (1.2x steeper) XP curve,
+in exchange for a permanent multiplier — 1.5x the first time, +0.2x every
+prestige after. Your rank name gets a roman numeral (Shrimp II, Bronze III,
+etc.) once you've prestiged at least once. Items you already own stay
+equippable even if a prestige puts your level below their unlock level —
+only *new* purchases are level-gated.
+
+**Shop**: five rarities (common → mythical). A handful of ultra rare and
+mythical items carry a passive effect while equipped — e.g. Phoenix Aura
+gives +25% workout XP, Iron Halo gives +40% login XP. Only one piece per
+slot (hat/outfit/pet/accessory) can be equipped at a time, same as before.
+
+**Schedule tab** (new nav link): a weekly calendar with a dot for each day
+— green if you hit your calorie goal, blue for water, orange for meds — plus
+a 🏋️ if that day is a scheduled training day and a ✅ if you actually logged
+a workout. Tap **Swap** on one day, then **Swap** on another day in the same
+week, to trade which day carries which workout. This only reveals *which
+days* are training days, not the exercises themselves — the exercise list
+is still hidden until you hit Start Workout, so the core surprise mechanic
+is untouched.
+
+**How every multiplier stacks**: level multiplier × prestige multiplier ×
+(meds streak, but only for meds XP) × (workout streak, but only for workout
+XP) × nutrition streak × any active spin-wheel boost × any equipped
+mythical item effect that matches the category — all multiplied together,
+then rounded once at the end. That's all in the single `computeAward()`
+function in `js/xp-engine.js` if you want to see or change the exact math.
+
+## Files touched in this update
+
+- `supabase/migration_v2.sql` — new, run this once
+- `js/xp-engine.js`, `js/data.js`, `js/game-logic.js` (new), `js/timeline.js`
+  (new) — all the systems above
+- `app.html`, `dashboard.html` — rebuilt for the new features
+- `schedule.html` — new page
+- `onboarding.html` — added the wake/sleep/meal time fields
+- `css/style.css` — timeline markers + shop rarity colors added
+- `js/supabase-client.js`, `js/auth.js`, `js/calc.js`, `js/character.js`,
+  `js/workout-engine.js` — untouched
