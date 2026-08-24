@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LevelUp — Schedule</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <nav class="topbar">
+    <span class="brand">LevelUp</span>
+    <div class="links">
+      <a href="app.html">Log Workout</a>
+      <a href="#" class="active">Schedule</a>
+      <a href="dashboard.html" class="desktop-only">Full Dashboard</a>
+      <a href="#" id="signOutLink">Sign Out</a>
+    </div>
+  </nav>
+
+  <div class="page" style="max-width:900px;">
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="stat-row" style="margin-bottom:6px;">
+        <button id="prevWeekBtn">← Prev</button>
+        <h2 id="weekLabel" style="text-align:center;">This Week</h2>
+        <button id="nextWeekBtn">Next →</button>
+      </div>
+      <p class="eyebrow" style="text-align:center;">
+        <span style="color:#3FA796;">●</span> Calorie goal &nbsp;
+        <span style="color:#5B8FE8;">●</span> Water goal &nbsp;
+        <span style="color:#E8952C;">●</span> Meds/vitamins &nbsp;
+        🏋️ = workout logged
+      </p>
+    </div>
+
+    <div class="grid" id="weekGrid" style="grid-template-columns: repeat(7, 1fr); gap: 10px;"></div>
+
+    <p class="eyebrow" id="swapHint" style="margin-top:16px;">Tap "Swap" on a day, then tap "Swap" on another day in the same week to trade their workouts.</p>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script src="js/supabase-client.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/xp-engine.js"></script>
+<script src="js/workout-engine.js"></script>
+<script src="js/data.js"></script>
+<script src="js/game-logic.js"></script>
+<script>
+let session, profile;
+let weekStart = isoWeekStart(new Date());
+let selectedDay = null; // day name chosen as the first side of a swap
+
+function showToast(text) {
+  const t = document.getElementById('toast');
+  t.textContent = text; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function isoWeekStart(d) {
+  const date = new Date(d);
+  date.setDate(date.getDate() - date.getDay());
+  date.setHours(0, 0, 0, 0);
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysISO(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatWeekLabel(startISO) {
+  const start = new Date(startISO + 'T00:00:00');
+  const end = new Date(addDaysISO(startISO, 6) + 'T00:00:00');
+  const opts = { month: 'short', day: 'numeric' };
+  const todayStart = isoWeekStart(new Date());
+  const prefix = startISO === todayStart ? 'This Week — ' : '';
+  return prefix + start.toLocaleDateString(undefined, opts) + ' – ' + end.toLocaleDateString(undefined, opts);
+}
+
+async function loadWeek() {
+  document.getElementById('weekLabel').textContent = formatWeekLabel(weekStart);
+  const DAY_NAMES = LevelUpWorkoutEngine.DAY_NAMES;
+  const endISO = addDaysISO(weekStart, 6);
+  const isCurrentWeek = weekStart === isoWeekStart(new Date());
+
+  let plan;
+  if (isCurrentWeek) {
+    plan = await LevelUpData.getOrCreateWeeklyPlan(session.user.id, weekStart, LevelUpWorkoutEngine.generateWeeklyPlan, profile.workouts_per_week || 4);
+  } else {
+    plan = await LevelUpData.getWeeklyPlanRaw(session.user.id, weekStart);
+  }
+
+  const [dailyLogs, workoutLogs] = await Promise.all([
+    LevelUpData.getDailyLogsRange(session.user.id, weekStart, endISO),
+    LevelUpData.getWorkoutLogsRange(session.user.id, weekStart, endISO),
+  ]);
+  const logsByDate = Object.fromEntries(dailyLogs.map(l => [l.logged_on, l]));
+  const workoutsByDate = Object.fromEntries(workoutLogs.map(w => [w.logged_on, w]));
+
+  const grid = document.getElementById('weekGrid');
+  const todayISO = new Date().toISOString().slice(0, 10);
+
+  grid.innerHTML = DAY_NAMES.map((dayName, idx) => {
+    const dateISO = addDaysISO(weekStart, idx);
+    const scheduled = plan && plan[dayName];
+    const log = logsByDate[dateISO];
+    const worked = !!workoutsByDate[dateISO];
+    const isToday = dateISO === todayISO;
+    const dots = [
+      log && log.calorie_goal_rewarded ? '<span style="color:#3FA796;">●</span>' : '<span style="opacity:0.2;">●</span>',
+      log && log.water_goal_rewarded ? '<span style="color:#5B8FE8;">●</span>' : '<span style="opacity:0.2;">●</span>',
+      log && log.meds_collected ? '<span style="color:#E8952C;">●</span>' : '<span style="opacity:0.2;">●</span>',
+    ].join(' ');
+
+    return `<div class="panel${isToday ? ' panel-raised' : ''}" style="text-align:center; padding:12px 8px; ${selectedDay === dayName ? 'border-color:var(--ember);' : ''}" data-day="${dayName}">
+      <div class="eyebrow">${dayName}</div>
+      <div class="mono" style="margin:4px 0;">${dateISO.slice(5)}</div>
+      <div style="min-height:24px; font-size:1.2rem;">${scheduled ? '🏋️' : '💤'}${worked ? ' ✅' : ''}</div>
+      <div style="margin:8px 0;">${dots}</div>
+      ${plan ? `<button class="swapBtn" data-day="${dayName}" style="width:100%; font-size:0.8rem; padding:6px;">${selectedDay === dayName ? 'Cancel' : 'Swap'}</button>` : ''}
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.swapBtn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const day = btn.dataset.day;
+      if (!selectedDay) {
+        selectedDay = day;
+        loadWeek();
+        return;
+      }
+      if (selectedDay === day) {
+        selectedDay = null;
+        loadWeek();
+        return;
+      }
+      const dayA = selectedDay;
+      selectedDay = null;
+      await LevelUpGame.swapScheduleDays(session.user.id, weekStart, dayA, day);
+      showToast(`Swapped ${dayA} and ${day}`);
+      loadWeek();
+    });
+  });
+}
+
+document.getElementById('prevWeekBtn').addEventListener('click', () => { weekStart = addDaysISO(weekStart, -7); selectedDay = null; loadWeek(); });
+document.getElementById('nextWeekBtn').addEventListener('click', () => { weekStart = addDaysISO(weekStart, 7); selectedDay = null; loadWeek(); });
+document.getElementById('signOutLink').addEventListener('click', (e) => { e.preventDefault(); LevelUpAuth.signOut(); });
+
+(async () => {
+  session = await LevelUpAuth.requireSession();
+  if (!session) return;
+  profile = await LevelUpData.getProfile(session.user.id);
+  if (!profile || !profile.onboarded) { window.location.href = 'onboarding.html'; return; }
+  await loadWeek();
+})();
+</script>
+</body>
+</html>
