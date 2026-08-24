@@ -241,3 +241,41 @@ nav.topbar .links a:hover, nav.topbar .links a.active { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ── Timeline ticks under calorie/water bars ────────────────────────────── */
+.timeline-row {
+  position: relative;
+  height: 38px;
+  margin-bottom: 6px;
+}
+.timeline-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.timeline-dot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  margin: 0 auto 4px;
+}
+.timeline-label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--ink-dim);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+/* ── Shop rarity colors ──────────────────────────────────────────────────── */
+.rarity-common { color: var(--ink-dim); }
+.rarity-uncommon { color: var(--vitality); }
+.rarity-rare { color: #5B8FE8; }
+.rarity-ultra_rare { color: #B36AE2; }
+.rarity-mythical { color: var(--ember); text-shadow: 0 0 10px rgba(232, 149, 44, 0.45); }
+
+.shop-item.rarity-ultra_rare { border-color: #B36AE2; }
+.shop-item.rarity-mythical { border-color: var(--ember); box-shadow: 0 0 12px rgba(232, 149, 44, 0.15); }
