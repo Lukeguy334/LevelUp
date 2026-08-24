@@ -13,6 +13,7 @@
     <div class="links">
       <span class="badge" id="levelBadge">Lv 1</span>
       <span class="badge" id="coinBadge">🪙 0</span>
+      <a href="schedule.html">Schedule</a>
       <a href="dashboard.html" class="desktop-only">Full Dashboard</a>
       <a href="#" id="signOutLink">Sign Out</a>
     </div>
@@ -20,8 +21,18 @@
 
   <div class="page" style="max-width:640px;">
     <div class="panel" style="margin-bottom:16px;">
-      <div class="stat-row"><span class="eyebrow">XP</span><span class="mono" id="xpText">0 / 100</span></div>
+      <div class="stat-row"><span class="eyebrow" id="levelNameText">Shrimp</span><span class="mono" id="xpText">0 / 100</span></div>
       <div class="bar-track"><div class="bar-fill" id="xpBar" style="width:0%;"></div></div>
+      <div class="eyebrow" id="streakSummary" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="panel" id="spinPanel" style="margin-bottom:16px; display:none;">
+      <div class="stat-row">
+        <h3>🎡 Weekly Spin Available!</h3>
+        <button class="primary" id="spinBtn">Spin</button>
+      </div>
+      <p class="eyebrow">7-day login streak reward. One spin per streak milestone.</p>
+      <div id="spinResult" class="mono" style="margin-top:8px;"></div>
     </div>
 
     <div class="panel" style="margin-bottom:16px;" id="workoutPanel">
@@ -34,28 +45,36 @@
     <div class="panel" style="margin-bottom:16px;">
       <h2 style="margin-bottom:12px;">Calories</h2>
       <div class="stat-row"><span class="eyebrow">Goal</span><span class="mono" id="calGoalText">—</span></div>
-      <div class="field" style="margin-top:10px;">
-        <label for="calInput">Logged today (kcal)</label>
-        <input id="calInput" type="number" />
+      <div class="bar-track" style="margin: 10px 0 4px;"><div class="bar-fill" id="calBar" style="width:0%;"></div></div>
+      <div id="calTimeline"></div>
+      <div class="mono" id="calText" style="margin: 10px 0;">0 kcal</div>
+
+      <div class="grid grid-3" style="margin-bottom:8px;">
+        <input id="mealName" placeholder="Meal name" style="grid-column: span 2;" />
+        <input id="mealCal" type="number" placeholder="kcal" />
       </div>
-      <button class="block" id="saveCalBtn">Save</button>
+      <button class="block" id="addMealBtn">Add Meal</button>
+      <div id="mealList" style="margin-top:12px;"></div>
     </div>
 
     <div class="panel" style="margin-bottom:16px;">
       <h2 style="margin-bottom:12px;">Water</h2>
       <div class="stat-row"><span class="eyebrow">Goal</span><span class="mono" id="waterGoalText">—</span></div>
-      <div class="bar-track" style="margin: 10px 0;"><div class="bar-fill vitality" id="waterBar" style="width:0%;"></div></div>
-      <div class="mono" id="waterText" style="margin-bottom:10px;">0 ml</div>
+      <div class="bar-track" style="margin: 10px 0 4px;"><div class="bar-fill vitality" id="waterBar" style="width:0%;"></div></div>
+      <div id="waterTimeline"></div>
+      <div class="mono" id="waterText" style="margin: 10px 0;">0 oz</div>
       <div class="grid grid-3">
-        <button id="addWater250">+250 ml</button>
-        <button id="addWater500">+500 ml</button>
-        <button id="addWater1000">+1 L</button>
+        <button id="addWater250">+8 oz</button>
+        <button id="addWater500">+16 oz</button>
+        <button id="addWater1000">+32 oz</button>
       </div>
     </div>
 
     <div class="panel" style="margin-bottom:16px;" id="medsPanel">
       <h2 style="margin-bottom:12px;">Meds & Vitamins</h2>
+      <div class="eyebrow" id="medsStreakText" style="margin-bottom:10px;"></div>
       <div id="medsList"></div>
+      <button class="primary block" id="collectMedsBtn" style="margin-top:12px; display:none;">Collect XP</button>
     </div>
   </div>
 
@@ -66,34 +85,76 @@
 <script src="js/calc.js"></script>
 <script src="js/xp-engine.js"></script>
 <script src="js/workout-engine.js"></script>
+<script src="js/timeline.js"></script>
 <script src="js/data.js"></script>
+<script src="js/game-logic.js"></script>
 <script>
-let session, profile, todayLog, prs;
+let session, profile, todayLog, prs, equippedItems;
 
 function showToast(text) {
   const t = document.getElementById('toast');
   t.textContent = text;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+async function currentCtx(overrides) {
+  profile = await LevelUpData.getProfile(session.user.id);
+  return LevelUpGame.buildAwardCtx(profile, equippedItems, overrides);
 }
 
 function renderHeader() {
-  const prog = LevelUpXP.xpProgress(profile.xp || 0);
-  document.getElementById('levelBadge').textContent = 'Lv ' + prog.level;
+  const X = LevelUpXP;
+  const prog = X.xpProgress(profile.xp || 0, profile.prestige || 0);
+  document.getElementById('levelBadge').textContent = 'Lv ' + prog.level + (profile.prestige ? ' ' + X.toRoman(profile.prestige) : '');
   document.getElementById('coinBadge').textContent = '🪙 ' + (profile.coins || 0);
-  document.getElementById('xpText').textContent = `${prog.current} / ${prog.needed}`;
-  document.getElementById('xpBar').style.width = Math.min(100, (prog.current / prog.needed) * 100) + '%';
+  document.getElementById('levelNameText').textContent = X.levelDisplayName(prog.level, profile.prestige || 0) + ' · ' + X.levelMultiplier(prog.level) + 'x XP';
+  if (prog.maxed) {
+    document.getElementById('xpText').textContent = 'MAX LEVEL';
+    document.getElementById('xpBar').style.width = '100%';
+  } else {
+    document.getElementById('xpText').textContent = `${prog.current} / ${prog.needed}`;
+    document.getElementById('xpBar').style.width = Math.min(100, (prog.current / prog.needed) * 100) + '%';
+  }
+
+  const bits = [];
+  if (profile.workout_streak_count) bits.push(`🏋️ Workout streak: ${profile.workout_streak_count}d (${X.workoutStreakMultiplier(profile.workout_streak_count)}x)`);
+  if (profile.meds_streak_count) bits.push(`💊 Meds streak: ${profile.meds_streak_count}d (${X.medsStreakMultiplier(profile.meds_streak_count)}x)`);
+  if (profile.nutrition_streak_count >= 5) bits.push(`🥗 Nutrition streak: ${profile.nutrition_streak_count}d (${X.nutritionStreakMultiplier(profile.nutrition_streak_count)}x)`);
+  if (profile.login_streak_count) bits.push(`🔥 Login streak: ${profile.login_streak_count}d`);
+  document.getElementById('streakSummary').textContent = bits.join('   ');
+
+  document.getElementById('spinPanel').style.display = (profile.spins_available || 0) > 0 ? 'block' : 'none';
 }
 
-async function refreshProfile() {
+// ── Login bonus + spin wheel ────────────────────────────────────────────
+async function handleDailyLogin() {
+  const result = await LevelUpGame.dailyLoginCheck(session.user.id);
+  if (!result.alreadyAwarded) {
+    profile = result.profile;
+    showToast(`Daily login +${result.award.xp} XP` + (result.spinGranted ? ' · Spin unlocked!' : ''));
+  }
+}
+
+document.getElementById('spinBtn').addEventListener('click', async () => {
+  document.getElementById('spinBtn').disabled = true;
+  const res = await LevelUpGame.spinWheel(session.user.id);
+  if (!res.ok) { showToast('No spins available.'); return; }
+  const d = res.resultDetail;
+  let text = res.prize.label;
+  if (d.itemName) text += `: ${d.itemEmoji} ${d.itemName}`;
+  if (d.award) text += ` (+${d.award.xp || 0} XP, +${d.award.coins || 0} coins)`;
+  document.getElementById('spinResult').textContent = '🎉 ' + text;
+  showToast('You won: ' + text);
   profile = await LevelUpData.getProfile(session.user.id);
   renderHeader();
-}
+  document.getElementById('spinBtn').disabled = false;
+});
 
+// ── Workout ──────────────────────────────────────────────────────────────
 function isoWeekStart(d) {
   const date = new Date(d);
-  const day = date.getDay(); // 0=Sun
-  date.setDate(date.getDate() - day);
+  date.setDate(date.getDate() - date.getDay());
   return date.toISOString().slice(0, 10);
 }
 
@@ -110,17 +171,20 @@ async function startWorkout() {
   document.getElementById('startWorkoutBtn').style.display = 'none';
   body.style.display = 'block';
 
+  window.__isScheduledToday = !!todayPlan;
+  window.__workoutStreakPreview = await LevelUpGame.previewWorkoutStreak(session.user.id, today, window.__isScheduledToday);
+  window.__session = { xp: 0, coins: 0, sets: 0, setsXp: 0, exercises: 0, exercisesXp: 0, prList: [] };
+
   if (!todayPlan) {
     body.innerHTML = `<div class="empty-state">Rest day. Recovery is part of the program — hydrate and hit your protein goal.</div>`;
     return;
   }
 
   prs = await LevelUpData.getPRs(session.user.id);
-  const prMap = Object.fromEntries(prs.map(p => [p.exercise_name, p]));
 
-  let html = `<p class="eyebrow" style="margin-bottom:12px;">Est. ${todayPlan.est_minutes} min · ${todayPlan.muscle_groups.join(', ')}</p>`;
+  let html = `<p class="eyebrow" style="margin-bottom:12px;">Est. ${todayPlan.est_minutes} min · ${todayPlan.muscle_groups.join(', ')} · streak day ${window.__workoutStreakPreview} (${LevelUpXP.workoutStreakMultiplier(window.__workoutStreakPreview)}x)</p>`;
   todayPlan.sets.forEach((s, exIdx) => {
-    html += `<div class="exercise-block"><h3>${s.exercise}</h3><p class="eyebrow">Target: ${s.target_sets} sets × ${s.target_reps} reps</p>`;
+    html += `<div class="exercise-block" data-ex-complete="false"><h3>${s.exercise}</h3><p class="eyebrow">Target: ${s.target_sets} sets × ${s.target_reps} reps</p>`;
     for (let i = 0; i < s.target_sets; i++) {
       html += `<div class="workout-set" data-ex="${exIdx}" data-set="${i}">
         <span class="mono">Set ${i + 1}</span>
@@ -145,12 +209,28 @@ async function startWorkout() {
       const reps = parseInt(row.querySelector('.repsInput').value, 10);
       if (!weight || !reps) return;
       const exercise = window.__todayPlan.sets[exIdx];
-      window.__loggedSets.push({ exercise: exercise.exercise, muscle_group: exercise.muscle_group, weight_lb: weight, reps });
+      window.__loggedSets.push({ exercise: exercise.exercise, muscle_group: exercise.muscle_group, weight_lb: weight, reps, exIdx });
       row.querySelectorAll('input').forEach(inp => inp.disabled = true);
       btn.disabled = true;
-      btn.textContent = '✓';
-      await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.setLogged, LevelUpXP.COIN_REWARDS.setLogged);
-      await refreshProfile();
+
+      const ctx = await currentCtx({ workoutStreak: window.__workoutStreakPreview });
+      const award = LevelUpXP.computeAward('workout', LevelUpXP.XP_REWARDS.setLogged, LevelUpXP.COIN_REWARDS.setLogged, ctx);
+      await LevelUpData.grantXpAndCoins(session.user.id, award.xp, award.coins);
+      window.__session.sets++; window.__session.setsXp += award.xp; window.__session.xp += award.xp; window.__session.coins += award.coins;
+
+      // Exercise-complete bonus: award once, the moment every target set for it is logged.
+      const block = body.querySelectorAll('.exercise-block')[exIdx];
+      const loggedForThisEx = window.__loggedSets.filter(s => s.exIdx === exIdx).length;
+      if (loggedForThisEx >= exercise.target_sets && block.dataset.exComplete === 'false') {
+        block.dataset.exComplete = 'true';
+        const ctx2 = await currentCtx({ workoutStreak: window.__workoutStreakPreview });
+        const exAward = LevelUpXP.computeAward('workout', LevelUpXP.XP_REWARDS.exerciseCompleted, LevelUpXP.COIN_REWARDS.exerciseCompleted, ctx2);
+        await LevelUpData.grantXpAndCoins(session.user.id, exAward.xp, exAward.coins);
+        window.__session.exercises++; window.__session.exercisesXp += exAward.xp; window.__session.xp += exAward.xp; window.__session.coins += exAward.coins;
+        showToast(`${exercise.exercise} complete! +${exAward.xp} XP`);
+      }
+      profile = await LevelUpData.getProfile(session.user.id);
+      renderHeader();
     });
   });
 
@@ -160,16 +240,20 @@ async function startWorkout() {
 async function finishWorkout() {
   if (!window.__loggedSets.length) { showToast('Log at least one set first.'); return; }
 
-  let prBonusXp = 0, prBonusCoins = 0, prHits = [];
+  const ctx = await currentCtx({ workoutStreak: window.__workoutStreakPreview });
+  const completeAward = LevelUpXP.computeAward('workout', LevelUpXP.XP_REWARDS.workoutComplete, LevelUpXP.COIN_REWARDS.workoutComplete, ctx);
+  window.__session.xp += completeAward.xp; window.__session.coins += completeAward.coins;
+
   for (const set of window.__loggedSets) {
     const existing = prs.find(p => p.exercise_name === set.exercise);
     const weightKg = set.weight_lb * LevelUpCalc.KG_PER_LB;
     if (!existing || weightKg > existing.weight_kg) {
       const pctIncrease = existing ? (weightKg - existing.weight_kg) / existing.weight_kg : 0.1;
-      const reward = LevelUpXP.prReward(pctIncrease);
-      prBonusXp += reward.xp;
-      prBonusCoins += reward.coins;
-      prHits.push(set.exercise);
+      const base = LevelUpXP.prReward(pctIncrease);
+      const prCtx = await currentCtx({ workoutStreak: window.__workoutStreakPreview });
+      const prAward = LevelUpXP.computeAward('workout', base.xp, base.coins, prCtx);
+      window.__session.prList.push({ exercise: set.exercise, xp: prAward.xp, coins: prAward.coins });
+      window.__session.xp += prAward.xp; window.__session.coins += prAward.coins;
       await LevelUpData.upsertPR(session.user.id, set.exercise, weightKg, set.reps);
     }
   }
@@ -178,88 +262,169 @@ async function finishWorkout() {
     muscleGroups: window.__todayPlan.muscle_groups,
     sets: window.__loggedSets,
     durationMin: window.__todayPlan.est_minutes,
-    xpEarned: LevelUpXP.XP_REWARDS.workoutComplete + prBonusXp,
-    coinsEarned: LevelUpXP.COIN_REWARDS.workoutComplete + prBonusCoins,
+    xpEarned: window.__session.xp,
+    coinsEarned: window.__session.coins,
   });
+  await LevelUpData.grantXpAndCoins(session.user.id, completeAward.xp, completeAward.coins);
+  await LevelUpGame.commitWorkoutStreak(session.user.id, new Date(), window.__isScheduledToday, window.__workoutStreakPreview);
+  await LevelUpGame.maybeAwardComboBonus(session.user.id);
 
-  await LevelUpData.grantXpAndCoins(
-    session.user.id,
-    LevelUpXP.XP_REWARDS.workoutComplete + prBonusXp,
-    LevelUpXP.COIN_REWARDS.workoutComplete + prBonusCoins
-  );
-  await refreshProfile();
+  profile = await LevelUpData.getProfile(session.user.id);
+  renderHeader();
 
-  document.getElementById('workoutBody').innerHTML = `<div class="empty-state">Workout logged. +${LevelUpXP.XP_REWARDS.workoutComplete + prBonusXp} XP${prHits.length ? ' · New PR: ' + prHits.join(', ') : ''}</div>`;
-  showToast(prHits.length ? `New PR! +${prBonusCoins} bonus coins` : 'Workout complete!');
+  const s = window.__session;
+  const prLines = s.prList.map(p => `<div class="stat-row"><span>🏆 New PR: ${p.exercise}</span><span class="mono">+${p.xp} XP, +${p.coins} 🪙</span></div>`).join('');
+  document.getElementById('workoutBody').innerHTML = `
+    <div class="panel-raised">
+      <h3 style="margin-bottom:10px;">Workout Summary</h3>
+      <div class="stat-row"><span>Sets logged (${s.sets} × 1xp)</span><span class="mono">+${s.setsXp} XP</span></div>
+      <div class="stat-row"><span>Exercises completed (${s.exercises} × 5xp)</span><span class="mono">+${s.exercisesXp} XP</span></div>
+      <div class="stat-row"><span>Workout complete bonus</span><span class="mono">+${completeAward.xp} XP</span></div>
+      ${prLines}
+      <div class="stat-row" style="margin-top:8px; border-top:1px solid var(--line); padding-top:8px;"><strong>Total</strong><span class="mono"><strong>+${s.xp} XP · +${s.coins} 🪙</strong></span></div>
+    </div>`;
+  showToast(`Workout complete! +${s.xp} XP total`);
 }
 
-async function renderNutrition() {
-  document.getElementById('calGoalText').textContent = (profile.calorie_goal || '—') + ' kcal';
-  document.getElementById('calInput').value = todayLog.calories_eaten ?? '';
+// ── Calories (meal-based) ───────────────────────────────────────────────
+function ozFromMl(ml) { return Math.round(ml / 29.5735); }
+function mlFromOz(oz) { return Math.round(oz * 29.5735); }
 
-  document.getElementById('waterGoalText').textContent = (profile.water_goal_ml || '—') + ' ml';
-  document.getElementById('waterText').textContent = (todayLog.water_ml || 0) + ' ml';
-  const pct = profile.water_goal_ml ? Math.min(100, ((todayLog.water_ml || 0) / profile.water_goal_ml) * 100) : 0;
-  document.getElementById('waterBar').style.width = pct + '%';
+async function renderMeals() {
+  const meals = await LevelUpData.getMealsForToday(session.user.id);
+  const list = document.getElementById('mealList');
+  list.innerHTML = meals.length ? meals.map(m => `
+    <div class="stat-row">
+      <span>${m.name}</span>
+      <span class="mono">${m.calories} kcal <button class="ghost delMealBtn" data-id="${m.id}" style="padding:2px 8px; margin-left:6px;">✕</button></span>
+    </div>`).join('') : '<p class="eyebrow">No meals logged yet today.</p>';
 
-  const medsList = document.getElementById('medsList');
-  const meds = profile.med_names || [];
-  if (!meds.length) {
-    document.getElementById('medsPanel').style.display = 'none';
-  } else {
-    medsList.innerHTML = meds.map(m => {
-      const checked = todayLog.meds_taken && todayLog.meds_taken[m] ? 'checked' : '';
-      return `<label style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-        <input type="checkbox" class="medCheck" data-med="${m}" ${checked} style="width:auto;" /> ${m}
-      </label>`;
-    }).join('');
-    medsList.querySelectorAll('.medCheck').forEach(cb => {
-      cb.addEventListener('change', async (e) => {
-        const med = e.target.dataset.med;
-        const meds_taken = { ...(todayLog.meds_taken || {}), [med]: e.target.checked };
-        todayLog = await LevelUpData.upsertTodayLog(session.user.id, { meds_taken });
-        if (e.target.checked) {
-          await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.medCheckOff, LevelUpXP.COIN_REWARDS.medCheckOff);
-          await refreshProfile();
-          showToast('+' + LevelUpXP.XP_REWARDS.medCheckOff + ' XP');
-        }
-      });
+  list.querySelectorAll('.delMealBtn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const res = await LevelUpData.deleteMealLog(session.user.id, parseInt(btn.dataset.id, 10));
+      todayLog = res.todayLog;
+      await renderNutrition();
     });
-  }
+  });
 }
 
-async function saveCalories() {
-  const val = parseInt(document.getElementById('calInput').value, 10);
-  if (!val) return;
-  todayLog = await LevelUpData.upsertTodayLog(session.user.id, { calories_eaten: val });
-  const withinGoal = profile.calorie_goal && Math.abs(val - profile.calorie_goal) <= profile.calorie_goal * 0.1;
+document.getElementById('addMealBtn').addEventListener('click', async () => {
+  const name = document.getElementById('mealName').value.trim();
+  const cal = parseInt(document.getElementById('mealCal').value, 10);
+  if (!name || !cal) { showToast('Enter a meal name and calories.'); return; }
+  const res = await LevelUpData.addMealLog(session.user.id, name, cal);
+  todayLog = res.todayLog;
+  document.getElementById('mealName').value = '';
+  document.getElementById('mealCal').value = '';
+  await renderNutrition();
+
+  const withinGoal = profile.calorie_goal && Math.abs(res.total - profile.calorie_goal) <= profile.calorie_goal * 0.1;
   if (withinGoal && !todayLog.calorie_goal_rewarded) {
     todayLog = await LevelUpData.upsertTodayLog(session.user.id, { calorie_goal_rewarded: true });
-    await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.calorieGoalHit, LevelUpXP.COIN_REWARDS.calorieGoalHit);
-    await refreshProfile();
-    showToast('Calorie goal hit! +' + LevelUpXP.XP_REWARDS.calorieGoalHit + ' XP');
-  } else {
-    showToast('Saved.');
+    const ctx = await currentCtx();
+    const award = LevelUpXP.computeAward('general', LevelUpXP.XP_REWARDS.calorieGoalHit, LevelUpXP.COIN_REWARDS.calorieGoalHit, ctx);
+    await LevelUpData.grantXpAndCoins(session.user.id, award.xp, award.coins);
+    profile = await LevelUpData.getProfile(session.user.id);
+    renderHeader();
+    await LevelUpGame.maybeUpdateNutritionStreak(session.user.id);
+    await LevelUpGame.maybeAwardComboBonus(session.user.id);
+    showToast(`Calorie goal hit! +${award.xp} XP`);
   }
+});
+
+// ── Nutrition rendering (calories + water + timelines) ─────────────────
+async function renderNutrition() {
+  document.getElementById('calGoalText').textContent = (profile.calorie_goal || '—') + ' kcal';
+  const calPct = profile.calorie_goal ? Math.min(100, ((todayLog.calories_eaten || 0) / profile.calorie_goal) * 100) : 0;
+  document.getElementById('calBar').style.width = calPct + '%';
+  document.getElementById('calText').textContent = (todayLog.calories_eaten || 0) + ' / ' + (profile.calorie_goal || '—') + ' kcal';
+  await renderMeals();
+
+  const points = LevelUpTimeline.buildTimelinePoints(profile);
+  document.getElementById('calTimeline').innerHTML = LevelUpTimeline.renderTimelineRow(points, 'calories', profile.calorie_goal || 0, ' kcal');
+
+  const waterGoalOz = ozFromMl(profile.water_goal_ml || 0);
+  const waterOz = ozFromMl(todayLog.water_ml || 0);
+  document.getElementById('waterGoalText').textContent = waterGoalOz + ' oz';
+  document.getElementById('waterText').textContent = waterOz + ' / ' + waterGoalOz + ' oz';
+  const waterPct = profile.water_goal_ml ? Math.min(100, ((todayLog.water_ml || 0) / profile.water_goal_ml) * 100) : 0;
+  document.getElementById('waterBar').style.width = waterPct + '%';
+  document.getElementById('waterTimeline').innerHTML = LevelUpTimeline.renderTimelineRow(points, 'water', waterGoalOz, 'oz');
+
+  renderMeds();
 }
 
-async function addWater(ml) {
+async function addWater(oz) {
+  const ml = mlFromOz(oz);
   const newTotal = (todayLog.water_ml || 0) + ml;
   todayLog = await LevelUpData.upsertTodayLog(session.user.id, { water_ml: newTotal });
   await renderNutrition();
   if (profile.water_goal_ml && newTotal >= profile.water_goal_ml && !todayLog.water_goal_rewarded) {
     todayLog = await LevelUpData.upsertTodayLog(session.user.id, { water_goal_rewarded: true });
-    await LevelUpData.grantXpAndCoins(session.user.id, LevelUpXP.XP_REWARDS.waterGoalHit, LevelUpXP.COIN_REWARDS.waterGoalHit);
-    await refreshProfile();
-    showToast('Water goal hit! +' + LevelUpXP.XP_REWARDS.waterGoalHit + ' XP');
+    const ctx = await currentCtx();
+    const award = LevelUpXP.computeAward('general', LevelUpXP.XP_REWARDS.waterGoalHit, LevelUpXP.COIN_REWARDS.waterGoalHit, ctx);
+    await LevelUpData.grantXpAndCoins(session.user.id, award.xp, award.coins);
+    profile = await LevelUpData.getProfile(session.user.id);
+    renderHeader();
+    await LevelUpGame.maybeUpdateNutritionStreak(session.user.id);
+    await LevelUpGame.maybeAwardComboBonus(session.user.id);
+    showToast(`Water goal hit! +${award.xp} XP`);
   }
 }
 
+// ── Meds: check-once, streak, collect-once ──────────────────────────────
+function renderMeds() {
+  const meds = profile.med_names || [];
+  const medsList = document.getElementById('medsList');
+  if (!meds.length) {
+    document.getElementById('medsPanel').style.display = 'none';
+    return;
+  }
+  document.getElementById('medsPanel').style.display = 'block';
+
+  const X = LevelUpXP;
+  const streak = profile.meds_streak_count || 0;
+  document.getElementById('medsStreakText').textContent = streak > 0
+    ? `Streak: ${streak} day${streak === 1 ? '' : 's'} (${X.medsStreakMultiplier(streak)}x XP${X.medsStreakCoinBonus(streak) ? ' + 1 coin/day' : ''})`
+    : 'Check off every med today to start a streak.';
+
+  medsList.innerHTML = meds.map(m => {
+    const checked = todayLog.meds_taken && todayLog.meds_taken[m];
+    return `<label style="display:flex; align-items:center; gap:8px; margin-bottom:8px; ${checked ? 'opacity:0.6;' : ''}">
+      <input type="checkbox" class="medCheck" data-med="${m}" ${checked ? 'checked disabled' : ''} style="width:auto;" /> ${m}
+    </label>`;
+  }).join('');
+
+  medsList.querySelectorAll('.medCheck').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      if (!e.target.checked) { e.target.checked = true; return; } // one-way: cannot uncheck
+      const med = e.target.dataset.med;
+      const meds_taken = { ...(todayLog.meds_taken || {}), [med]: true };
+      todayLog = await LevelUpData.upsertTodayLog(session.user.id, { meds_taken });
+      renderMeds();
+    });
+  });
+
+  const collectBtn = document.getElementById('collectMedsBtn');
+  const allChecked = LevelUpGame.allMedsChecked(profile, todayLog);
+  collectBtn.style.display = (allChecked && !todayLog.meds_collected) ? 'block' : 'none';
+}
+
+document.getElementById('collectMedsBtn').addEventListener('click', async () => {
+  const res = await LevelUpGame.collectMedsXp(session.user.id);
+  if (!res.ok) { showToast('Already collected today.'); return; }
+  todayLog = await LevelUpData.getTodayLog(session.user.id);
+  profile = await LevelUpData.getProfile(session.user.id);
+  renderHeader();
+  renderMeds();
+  showToast(`Meds streak day ${res.newStreak}! +${res.award.xp} XP` + (res.award.coins ? ` +${res.award.coins} 🪙` : ''));
+});
+
+// ── Wire up static buttons ──────────────────────────────────────────────
 document.getElementById('startWorkoutBtn').addEventListener('click', startWorkout);
-document.getElementById('saveCalBtn').addEventListener('click', saveCalories);
-document.getElementById('addWater250').addEventListener('click', () => addWater(250));
-document.getElementById('addWater500').addEventListener('click', () => addWater(500));
-document.getElementById('addWater1000').addEventListener('click', () => addWater(1000));
+document.getElementById('addWater250').addEventListener('click', () => addWater(8));
+document.getElementById('addWater500').addEventListener('click', () => addWater(16));
+document.getElementById('addWater1000').addEventListener('click', () => addWater(32));
 document.getElementById('signOutLink').addEventListener('click', (e) => { e.preventDefault(); LevelUpAuth.signOut(); });
 
 (async () => {
@@ -267,6 +432,8 @@ document.getElementById('signOutLink').addEventListener('click', (e) => { e.prev
   if (!session) return;
   profile = await LevelUpData.getProfile(session.user.id);
   if (!profile || !profile.onboarded) { window.location.href = 'onboarding.html'; return; }
+  equippedItems = await LevelUpData.getEquippedItems(session.user.id);
+  await handleDailyLogin();
   todayLog = await LevelUpData.getTodayLog(session.user.id);
   renderHeader();
   await renderNutrition();
