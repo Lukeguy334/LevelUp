@@ -51,6 +51,37 @@
     </div>
 
     <div class="panel" style="margin-bottom:16px;">
+      <h3 style="margin-bottom:14px;">Daily Rhythm</h3>
+      <p class="eyebrow" style="margin-bottom:12px;">Used to time your calorie/water progress bars against your actual day.</p>
+      <div class="grid grid-2">
+        <div class="field">
+          <label for="wakeTime">Wake up</label>
+          <input id="wakeTime" type="time" value="08:00" />
+        </div>
+        <div class="field">
+          <label for="sleepTime">Go to bed</label>
+          <input id="sleepTime" type="time" value="22:00" />
+        </div>
+        <div class="field">
+          <label for="breakfastTime">Breakfast</label>
+          <input id="breakfastTime" type="time" value="09:30" />
+        </div>
+        <div class="field">
+          <label for="lunchTime">Lunch</label>
+          <input id="lunchTime" type="time" value="12:30" />
+        </div>
+        <div class="field">
+          <label for="dinnerTime">Dinner</label>
+          <input id="dinnerTime" type="time" value="18:30" />
+        </div>
+        <div class="field">
+          <label for="snackTime">Snack</label>
+          <input id="snackTime" type="time" value="15:30" />
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
       <h3 style="margin-bottom:14px;">Weight Goal</h3>
       <div class="field">
         <label for="direction">Direction</label>
@@ -78,7 +109,7 @@
       </div>
       <div class="stat-row"><h3>Recommended water goal</h3><span class="stat-value mono" id="waterOut">—</span></div>
       <div class="field">
-        <label for="waterCustom">Adjust if you want something different (ml/day)</label>
+        <label for="waterCustom">Adjust if you want something different (oz/day)</label>
         <input id="waterCustom" type="number" />
       </div>
     </div>
@@ -125,9 +156,9 @@
     const water = LevelUpCalc.recommendedWaterMl({ weightKg, workoutsPerWeek: freq });
 
     document.getElementById('calOut').textContent = cal + ' kcal';
-    document.getElementById('waterOut').textContent = water + ' ml (' + Math.round(water/29.57) + ' oz)';
+    document.getElementById('waterOut').textContent = Math.round(water / 29.57) + ' oz';
     document.getElementById('calCustom').placeholder = cal;
-    document.getElementById('waterCustom').placeholder = water;
+    document.getElementById('waterCustom').placeholder = Math.round(water / 29.57);
   }
 
   document.getElementById('saveBtn').addEventListener('click', async () => {
@@ -152,7 +183,8 @@
     const recWater = LevelUpCalc.recommendedWaterMl({ weightKg, workoutsPerWeek: freq });
 
     const calCustomVal = parseFloat(document.getElementById('calCustom').value);
-    const waterCustomVal = parseFloat(document.getElementById('waterCustom').value);
+    const waterCustomOz = parseFloat(document.getElementById('waterCustom').value);
+    const waterCustomVal = waterCustomOz ? Math.round(waterCustomOz * 29.5735) : null;
 
     const profile = {
       height_cm: heightCm,
@@ -166,6 +198,12 @@
       water_goal_ml: waterCustomVal || recWater,
       water_goal_auto: !waterCustomVal,
       med_names: meds,
+      wake_time: document.getElementById('wakeTime').value || null,
+      sleep_time: document.getElementById('sleepTime').value || null,
+      breakfast_time: document.getElementById('breakfastTime').value || null,
+      lunch_time: document.getElementById('lunchTime').value || null,
+      dinner_time: document.getElementById('dinnerTime').value || null,
+      snack_time: document.getElementById('snackTime').value || null,
       onboarded: true,
     };
 
