@@ -60,15 +60,19 @@ function buildTimelinePoints(profile) {
 function renderTimelineRow(points, kind, goalValue, unit) {
   // kind: 'calories' | 'water'. unit: 'kcal' | 'oz'.
   if (!points.length) return '<p class="eyebrow">Set your wake/sleep/meal times in Settings to see timing markers.</p>';
-  const marks = points.map(p => {
+
+  const dots = points.map(p => `<span class="timeline-dot-mark" style="left:${p.positionPct.toFixed(1)}%;"></span>`).join('');
+
+  const chips = points.map(p => {
     const pct = kind === 'calories' ? p.calPct : p.waterPct;
     const value = Math.round(pct * goalValue);
-    return `<div class="timeline-tick" style="left:${p.positionPct.toFixed(1)}%;">
-      <span class="timeline-dot"></span>
-      <span class="timeline-label">${p.clock}<br>${Math.round(pct * 100)}% · ${value}${unit}</span>
+    return `<div class="timeline-chip">
+      <span class="timeline-chip-time">${p.label} · ${p.clock}</span>
+      <span class="timeline-chip-value">${Math.round(pct * 100)}% · ${value}${unit}</span>
     </div>`;
   }).join('');
-  return `<div class="timeline-row">${marks}</div>`;
+
+  return `<div class="timeline-dots">${dots}</div><div class="timeline-chips">${chips}</div>`;
 }
 
 window.LevelUpTimeline = { buildTimelinePoints, renderTimelineRow, formatClock, MEAL_PCT };
